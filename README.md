@@ -69,7 +69,7 @@ end
 
 
 #Step ( create auth_error_handler.ex  )
-
+//lib/phoenix_auth/auth_error_handler.ex
 ~~~~
 defmodule PhoenixAuth.AuthErrorHandler do
     import Plug.Conn
@@ -85,6 +85,7 @@ defmodule PhoenixAuth.AuthErrorHandler do
 
 #Step ( add router pipeline )
 
+//lib/phoenix_auth_web/router.ex
 ~~~~
 
   pipeline :authorized do
@@ -98,7 +99,110 @@ defmodule PhoenixAuth.AuthErrorHandler do
  ~~~~
 
 
- 
+ #step ( edit user model )
+
+//lib/phoenix_auth/auth/user.ex
+
+ ~~~~
+ defmodule PhoenixAuth.Auth.User do
+  use Ecto.Schema
+  import Ecto.Changeset
+  alias PhoenixAuth.Auth.User
+
+
+  schema "users" do
+    field :email, :string
+    field :fullname, :string
+    field :hash_password, :string
+    field :password, :string, virtual: true #u should note this!
+    field :phone, :string
+    field :username, :string
+
+    timestamps()
+  end
+
+  @doc false
+  def changeset(%User{} = user, attrs) do
+    user
+    |> cast(attrs, [:username, :email, :hash_password, :fullname, :phone, :password])
+    |> validate_required([:username, :email, :fullname, :phone])
+    |> unique_constraint(:username)
+    |> unique_constraint(:email)
+    |> put_password_hash()
+  end
+
+
+  def put_password_hash(changeset) do
+    case changeset do
+      %Ecto.Changeset{valid?: true, changes: %{password: password}} ->
+        put_change(changeset, :hash_password, Comeonin.Bcrypt.hashpwsalt(password))
+      _ ->
+        changeset
+    end
+  end
+
+end
+~~~~
+
+
+#Step ( Add )
+
+
+~~~~
+/lib/phoenix_auth_web/views/helpers.ex
+defmodule PhoenixAuthWeb.ViewHelper do
+    def current_user(conn), do: Guardian.Plug.current_resource(conn)
+    def logged_in?(conn), do: Guardian.Plug.authenticated?(conn, [])
+end
+
+#import ( into phoenix_auth_web.ex )
+/lib/phoenix_auth_web/phoenix_auth_web.ex
+import PhoenixAuthWeb.ViewHelper
+
+
+~~~~~
+
+
+#step ( add to user controller )
+
+~~~~
+
+
+  def login(conn, _params) do
+    
+    changeset = Auth.change_user(%User{})
+    render(conn, "login.html", changeset: changeset)
+  end
+
+  def sign_in(conn, %{"user" => %{"email" => email, "password" => pass}}) do
+      case PhoenixAuth.Auth.authenticate(email, pass) do
+        {:ok, user} ->
+          
+          conn =  PhoenixAuth.Guardian.Plug.sign_in(conn, user)
+          conn
+          |> put_flash(:info, "Login successful, Welcome to wonderland!")
+          |>  redirect(to: "/secured/users")
+        {:error, message} ->
+          conn
+          |> put_flash(:error, "Wrong username/password")
+          |>  redirect(to: "/login")
+       end
+      
+  end
+
+  def sign_in(conn, _params) do
+    send_resp(conn, 401, Poison.encode!(%{error: "Incorrect password"}))
+  end
+
+  def sign_out(conn, _params) do
+    conn
+    |> PhoenixAuth.Guardian.Plug.sign_out()
+    #|> send_resp(204, "")
+    |>  redirect(to: "/" )
+  end
+
+
+  ~~~~
 
 
 
